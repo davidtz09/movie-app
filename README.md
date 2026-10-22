@@ -125,25 +125,8 @@ The model weights persist in the `ollama-data` Docker volume, and movie data per
 
 ## Tests and SonarQube
 
-The backend Dockerfile has a dedicated `test` build target. It runs the Flask API tests and writes JUnit test results plus a coverage report to a shared Docker volume. SonarQube imports both reports.
+The workflow runs backend tests on a GitHub-hosted runner and uploads the coverage and JUnit reports. A SonarQube analysis job then runs on the self-hosted machine. It starts the persistent SonarQube container, waits for it to be ready at [http://localhost:9000](http://localhost:9000), analyzes the downloaded reports, and enforces the quality gate before images are published or deployed. The SonarQube data and extensions use persistent Docker volumes, so the server stays available after the workflow finishes.
 
-Start the local SonarQube container:
+One-time setup: after the first workflow starts SonarQube, open [http://localhost:9000](http://localhost:9000) on the self-hosted machine, complete the initial sign-in, create a project with key `movie-app`, and generate an analysis token. Add that token in the GitHub repository under **Settings → Secrets and variables → Actions → New repository secret** with the name `SONAR_TOKEN`. Then rerun the workflow. Do not commit the token. The self-hosted runner must have Docker Compose and permission to use Docker.
 
-```sh
-docker compose --profile quality up -d sonarqube
-```
-
-Wait for [http://localhost:9000](http://localhost:9000) to finish starting, sign in, create a project with key `movie-app`, and generate an analysis token for it. Export that token in the terminal where you will run the scanner:
-
-```sh
-export SONAR_TOKEN="your-user-token"
-```
-
-Run the tests and send the reports to SonarQube:
-
-```sh
-docker compose --profile quality run --build --rm movie-test
-docker compose --profile quality run --build --rm sonar-scanner
-```
-
-The analysis appears in the `movie-app` project at [http://localhost:9000](http://localhost:9000). The scanner settings are in `sonar-project.properties`; its Docker image is configured in `sonar/Dockerfile`. SonarQube data and test reports persist in Docker volumes. To stop SonarQube, run `docker compose --profile quality stop sonarqube`.
+The workflow starts and analyzes SonarQube automatically on future runs. The `sonarqube` service binds to `127.0.0.1:9000`, so it is available only from the runner machine itself. Scanner settings are in `sonar-project.properties`; the scanner image is configured in `sonar/Dockerfile`. To stop SonarQube manually, run `docker compose --profile quality stop sonarqube` from the project directory.

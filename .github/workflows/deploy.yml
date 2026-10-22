@@ -27,11 +27,62 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       - name: Run backend tests in Docker
-        run: docker compose --profile quality run --build --rm movie-test
+        run: |
+          mkdir -p reports
+          docker compose --profile quality run --build --rm movie-test
+
+      - name: Upload test reports for SonarQube
+        uses: actions/upload-artifact@v4
+        with:
+          name: movie-test-reports
+          path: reports/
+          if-no-files-found: error
+
+  sonarqube-analysis:
+    name: SonarQube analysis
+    needs: test
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+
+      - name: Download test reports
+        uses: actions/download-artifact@v4
+        with:
+          name: movie-test-reports
+          path: reports/
+
+      - name: Start SonarQube on this machine
+        run: docker compose --profile quality up -d sonarqube
+
+      - name: Wait for SonarQube to be ready
+        shell: bash
+        run: |
+          for attempt in {1..90}; do
+            if curl --fail --silent http://localhost:9000/api/system/status | grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"'; then
+              echo "SonarQube is ready at http://localhost:9000."
+              exit 0
+            fi
+            sleep 10
+          done
+          docker compose --profile quality logs --tail=100 sonarqube
+          exit 1
+
+      - name: Validate SonarQube token
+        run: test -n "$SONAR_TOKEN" || { echo "Set the SONAR_TOKEN repository secret."; exit 1; }
+
+      - name: Analyze project and enforce quality gate
+        run: docker compose --profile quality run --build --rm sonar-scanner
 
   publish:
     name: Build and publish images
-    needs: test
+    needs: sonarqube-analysis
     if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

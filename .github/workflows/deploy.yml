@@ -1,0 +1,141 @@
+name: Movie App CI and Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Optional image tag to build and deploy (defaults to the commit SHA or release tag)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movie-app-deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+
+      - name: Run backend tests in Docker
+        run: docker compose --profile quality run --build --rm movie-test
+
+  publish:
+    name: Build and publish images
+    needs: test
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      image_tag: ${{ steps.image.outputs.tag }}
+    env:
+      DOCKERHUB_USER: ${{ vars.DOCKERHUB_USER }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      REQUESTED_TAG: ${{ github.event.inputs.image_tag }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+
+      - name: Validate Docker Hub credentials
+        run: |
+          test -n "$DOCKERHUB_USER" || { echo "Set the DOCKERHUB_USER repository variable."; exit 1; }
+          test -n "$DOCKERHUB_TOKEN" || { echo "Set the DOCKERHUB_TOKEN repository secret."; exit 1; }
+
+      - name: Select image tag
+        id: image
+        shell: bash
+        run: |
+          if [[ -n "$REQUESTED_TAG" ]]; then
+            tag="$REQUESTED_TAG"
+          elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tag="${GITHUB_REF_NAME#v}"
+          else
+            tag="sha-${GITHUB_SHA}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        run: printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USER" --password-stdin
+
+      - name: Build and push API image
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          docker build --target runtime \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --tag "$DOCKERHUB_USER/movie-api:$IMAGE_TAG" backend
+          docker push "$DOCKERHUB_USER/movie-api:$IMAGE_TAG"
+
+      - name: Build and push frontend image
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --tag "$DOCKERHUB_USER/movie-ui:$IMAGE_TAG" frontend
+          docker push "$DOCKERHUB_USER/movie-ui:$IMAGE_TAG"
+
+      - name: Log out from Docker Hub
+        if: always()
+        run: docker logout || true
+
+  deploy:
+    name: Deploy on self-hosted machine
+    needs: publish
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      DOCKERHUB_USER: ${{ vars.DOCKERHUB_USER }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      IMAGE_TAG: ${{ needs.publish.outputs.image_tag }}
+      DOCKER_CONFIG: ${{ runner.temp }}/movie-app-docker-config
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+
+      - name: Validate deployment settings
+        run: |
+          test -n "$DOCKERHUB_USER" || { echo "Set the DOCKERHUB_USER repository variable."; exit 1; }
+          test -n "$DOCKERHUB_TOKEN" || { echo "Set the DOCKERHUB_TOKEN repository secret."; exit 1; }
+          test -n "$IMAGE_TAG" || { echo "No image tag was produced."; exit 1; }
+
+      - name: Log in to Docker Hub
+        run: |
+          install -d -m 700 "$DOCKER_CONFIG"
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USER" --password-stdin
+
+      - name: Pull and start the release
+        run: |
+          docker compose pull movie-api movie-ui
+          docker compose up -d --no-build --remove-orphans
+          docker compose ps
+
+      - name: Check the deployed API
+        shell: bash
+        run: |
+          for attempt in {1..12}; do
+            if curl --fail --silent http://localhost:5001/api/movies >/dev/null; then
+              echo "Movie API is responding."
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose logs --tail=100 movie-api
+          exit 1
+
+      - name: Log out from Docker Hub
+        if: always()
+        run: docker logout || true

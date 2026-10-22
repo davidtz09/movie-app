@@ -1,0 +1,106 @@
+services:
+  movie-db:
+    image: mongo:6.0
+    container_name: movie-db
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  movie-seed:
+    image: mongo:6.0
+    depends_on:
+      - movie-db
+    volumes:
+      - ./mongo/init.json:/tmp/init.json:ro
+    entrypoint: ["bash", "-lc", "until mongosh mongodb://movie-db:27017 --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1; do sleep 2; done; mongoimport --host movie-db --db movies_db --collection movies --file /tmp/init.json --jsonArray --mode upsert --upsertFields title"]
+    restart: "no"
+
+  movie-ai:
+    image: ollama/ollama:latest
+    container_name: movie-ai
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+  movie-ai-model:
+    image: ollama/ollama:latest
+    depends_on:
+      - movie-ai
+    entrypoint: ["sh", "-lc", "until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull $${OLLAMA_MODEL:-llama3.2:1b}"]
+    environment:
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+      OLLAMA_HOST: http://movie-ai:11434
+    restart: "no"
+
+  movie-api:
+    image: ${DOCKERHUB_USER:-local}/movie-api:${IMAGE_TAG:-dev}
+    build:
+      context: ./backend
+      target: runtime
+    container_name: movie-api
+    ports:
+      - "5001:5000"
+    environment:
+      MONGO_URI: mongodb://movie-db:27017/movies_db
+      OLLAMA_URL: http://movie-ai:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+    depends_on:
+      movie-seed:
+        condition: service_completed_successfully
+      movie-ai-model:
+        condition: service_completed_successfully
+
+  movie-ui:
+    image: ${DOCKERHUB_USER:-local}/movie-ui:${IMAGE_TAG:-dev}
+    build:
+      context: ./frontend
+    container_name: movie-ui
+    ports:
+      - "8181:80"
+    depends_on:
+      - movie-api
+
+  sonarqube:
+    image: sonarqube:community
+    profiles: [quality]
+    ports:
+      - "9000:9000"
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+    volumes:
+      - sonar-data:/opt/sonarqube/data
+      - sonar-extensions:/opt/sonarqube/extensions
+      - sonar-logs:/opt/sonarqube/logs
+
+  movie-test:
+    image: movie-test:${IMAGE_TAG:-dev}
+    profiles: [quality]
+    build:
+      context: ./backend
+      target: test
+    volumes:
+      - sonar-reports:/reports
+
+  sonar-scanner:
+    image: movie-sonar-scanner:12.2
+    profiles: [quality]
+    build:
+      context: ./sonar
+    depends_on:
+      - sonarqube
+    environment:
+      SONAR_HOST_URL: http://sonarqube:9000
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+    volumes:
+      - ./:/usr/src:ro
+      - sonar-reports:/reports:ro
+
+volumes:
+  mongo-data:
+  ollama-data:
+  sonar-data:
+  sonar-extensions:
+  sonar-logs:
+  sonar-reports:

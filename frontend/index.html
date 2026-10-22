@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101114">
+    <title>Reelgood — Movie Explorer</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #101114;
+            --panel: #191a20;
+            --panel-soft: #202127;
+            --text: #f5f2ec;
+            --muted: #a7a5a2;
+            --accent: #f4b942;
+            --line: rgba(255,255,255,.09);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: radial-gradient(ellipse at 80% 0%, rgba(116, 56, 32, .2), transparent 35%), var(--bg);
+            color: var(--text);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        button { font: inherit; }
+        .shell { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+        header { height: 76px; display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+        .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: -.04em; font-size: 21px; }
+        .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: var(--accent); color: #17130b; font-size: 17px; }
+        .brand span:last-child { color: var(--accent); }
+        .top-note { margin-left: auto; color: var(--muted); font-size: 13px; }
+        main { padding: 68px 0 80px; }
+        .eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: .16em; font-size: 11px; font-weight: 800; }
+        h1 { max-width: 690px; margin: 13px 0 14px; font-size: clamp(38px, 6vw, 68px); letter-spacing: -.065em; line-height: .99; }
+        .intro { max-width: 560px; color: var(--muted); font-size: 16px; line-height: 1.65; margin: 0; }
+        .browse { margin-top: 45px; }
+        .section-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
+        h2 { margin: 0; font-size: 21px; letter-spacing: -.03em; }
+        .count { color: var(--muted); font-size: 13px; }
+        .filters { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 24px; }
+        .filter {
+            border: 1px solid var(--line); background: transparent; color: var(--muted);
+            padding: 9px 15px; border-radius: 999px; cursor: pointer; transition: .18s ease;
+        }
+        .filter:hover { border-color: rgba(244,185,66,.6); color: var(--text); }
+        .filter.active { color: #17130b; background: var(--accent); border-color: var(--accent); font-weight: 750; }
+        .content-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+        .movie-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
+        .movie-card {
+            min-height: 153px; padding: 19px; border: 1px solid var(--line); border-radius: 16px;
+            background: linear-gradient(145deg, rgba(255,255,255,.045), rgba(255,255,255,.015));
+            display: flex; flex-direction: column; justify-content: space-between; transition: transform .18s ease, border-color .18s ease;
+        }
+        .movie-card:hover { transform: translateY(-3px); border-color: rgba(244,185,66,.35); }
+        .movie-icon { font-size: 22px; }
+        .movie-title { font-size: 17px; font-weight: 750; letter-spacing: -.025em; margin: 15px 0 10px; }
+        .movie-meta { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 12px; }
+        .tag { color: var(--accent); background: rgba(244,185,66,.1); padding: 5px 8px; border-radius: 999px; text-transform: capitalize; }
+        .insight {
+            position: sticky; top: 20px; padding: 22px; border: 1px solid rgba(244,185,66,.25); border-radius: 18px;
+            background: linear-gradient(155deg, rgba(244,185,66,.09), transparent 55%), var(--panel);
+        }
+        .insight-label { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+        .spark { font-size: 17px; }
+        .insight h2 { margin: 20px 0 10px; font-size: 19px; }
+        .insight p { color: var(--muted); font-size: 13px; line-height: 1.65; margin: 0 0 18px; }
+        .primary {
+            width: 100%; padding: 11px 14px; border: 0; border-radius: 10px; cursor: pointer;
+            color: #17130b; background: var(--accent); font-weight: 800; transition: filter .18s ease;
+        }
+        .primary:hover { filter: brightness(1.08); }
+        .primary:disabled { opacity: .65; cursor: wait; }
+        .status { min-height: 18px; margin-top: 12px !important; margin-bottom: 0 !important; font-size: 12px !important; }
+        .empty { grid-column: 1 / -1; color: var(--muted); padding: 28px; border: 1px dashed var(--line); border-radius: 14px; text-align: center; }
+        .skeleton { color: var(--muted); padding: 25px 0; }
+        footer { border-top: 1px solid var(--line); color: #77767a; padding: 22px 0; font-size: 12px; }
+        @media (max-width: 760px) {
+            main { padding-top: 48px; }
+            .content-grid { grid-template-columns: 1fr; }
+            .insight { position: static; grid-row: 1; }
+            .movie-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+        }
+        @media (max-width: 480px) {
+            .shell { width: min(100% - 28px, 1120px); }
+            .top-note { font-size: 11px; }
+            .movie-grid { grid-template-columns: 1fr; }
+            .movie-card { min-height: 135px; }
+            .section-head { align-items: start; flex-direction: column; gap: 7px; }
+        }
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="shell" style="display:flex;align-items:center;width:min(1120px, calc(100% - 40px))">
+            <div class="brand"><span class="brand-mark">▶</span>reel<span>good</span></div>
+            <div class="top-note">Your next movie night starts here</div>
+        </div>
+    </header>
+    <main class="shell">
+        <div class="eyebrow">The movie shelf</div>
+        <h1>Find a film for<br>the feeling.</h1>
+        <p class="intro">Browse a handpicked collection by category, then ask our local AI guide what makes each selection worth a watch.</p>
+
+        <section class="browse" aria-labelledby="browse-title">
+            <div class="section-head">
+                <h2 id="browse-title">Explore the collection</h2>
+                <span id="movieCount" class="count">Loading movies…</span>
+            </div>
+            <div class="filters" role="group" aria-label="Filter movies by category">
+                <button class="filter active" data-category="" aria-pressed="true">All movies</button>
+                <button class="filter" data-category="drama" aria-pressed="false">Drama</button>
+                <button class="filter" data-category="comedy" aria-pressed="false">Comedy</button>
+                <button class="filter" data-category="thriller" aria-pressed="false">Thriller</button>
+            </div>
+            <div class="content-grid">
+                <div id="movieGrid" class="movie-grid" aria-live="polite"><div class="skeleton">Finding something good…</div></div>
+                <aside class="insight" aria-labelledby="insight-title">
+                    <div class="insight-label"><span class="spark">✦</span> Local AI guide</div>
+                    <h2 id="insight-title">A little more about this category</h2>
+                    <p>Pick a category and let the on-device model find a thread through its movies.</p>
+                    <button id="aiButton" class="primary" type="button">✨ Get AI insights</button>
+                    <p id="aiStatus" class="status" aria-live="polite">Your movies stay on your local setup.</p>
+                </aside>
+            </div>
+        </section>
+    </main>
+    <footer><div class="shell">Reelgood · A local movie explorer</div></footer>
+    <script>
+        const API_BASE = 'http://localhost:5001/api';
+        const grid = document.getElementById('movieGrid');
+        const countLabel = document.getElementById('movieCount');
+        const aiStatus = document.getElementById('aiStatus');
+        const aiButton = document.getElementById('aiButton');
+        let selectedCategory = '';
+        const categoryIcons = { drama: '🎭', comedy: '🍿', thriller: '🌒' };
+
+        async function fetchMovies() {
+            grid.innerHTML = '<div class="skeleton">Finding something good…</div>';
+            try {
+                const response = await fetch(`${API_BASE}/movies?category=${encodeURIComponent(selectedCategory)}`);
+                if (!response.ok) throw new Error('Movie API returned an error.');
+                const data = await response.json();
+                countLabel.textContent = `${data.count} ${data.count === 1 ? 'movie' : 'movies'}${selectedCategory ? ` in ${selectedCategory}` : ' in the collection'}`;
+                if (!data.movies || data.movies.length === 0) {
+                    grid.innerHTML = '<div class="empty">No movies in this category yet.</div>';
+                    return;
+                }
+                grid.replaceChildren(...data.movies.map(movie => {
+                    const card = document.createElement('article');
+                    card.className = 'movie-card';
+                    const icon = document.createElement('div');
+                    icon.className = 'movie-icon';
+                    icon.setAttribute('aria-hidden', 'true');
+                    icon.textContent = categoryIcons[movie.category] || '🎬';
+                    const title = document.createElement('h3');
+                    title.className = 'movie-title';
+                    title.textContent = movie.title;
+                    const meta = document.createElement('div');
+                    meta.className = 'movie-meta';
+                    const year = document.createElement('span');
+                    year.textContent = movie.year;
+                    const tag = document.createElement('span');
+                    tag.className = 'tag';
+                    tag.textContent = movie.category;
+                    meta.append(year, tag);
+                    card.append(icon, title, meta);
+                    return card;
+                }));
+            } catch (error) {
+                countLabel.textContent = 'Could not load movies';
+                grid.innerHTML = '<div class="empty">The movie API is unavailable. Make sure the Docker Compose services are running, then try again.</div>';
+            }
+        }
+
+        async function fetchCategoryDetails() {
+            if (!selectedCategory) {
+                aiStatus.textContent = 'Choose Drama, Comedy, or Thriller to get category insights.';
+                return;
+            }
+            aiButton.disabled = true;
+            aiButton.textContent = 'Thinking…';
+            aiStatus.textContent = `The local model is looking at the ${selectedCategory} collection…`;
+            try {
+                const response = await fetch(`${API_BASE}/category-details?category=${encodeURIComponent(selectedCategory)}`);
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Could not generate insights.');
+                aiStatus.textContent = data.details;
+            } catch (error) {
+                aiStatus.textContent = error.message || 'Could not connect to the local AI guide.';
+            } finally {
+                aiButton.disabled = false;
+                aiButton.textContent = '✨ Get AI insights';
+            }
+        }
+
+        document.querySelectorAll('.filter').forEach(button => {
+            button.addEventListener('click', () => {
+                selectedCategory = button.dataset.category;
+                document.querySelectorAll('.filter').forEach(filter => {
+                    const active = filter === button;
+                    filter.classList.toggle('active', active);
+                    filter.setAttribute('aria-pressed', String(active));
+                });
+                aiStatus.textContent = selectedCategory
+                    ? `Ready to explore the ${selectedCategory} collection.`
+                    : 'Your movies stay on your local setup.';
+                fetchMovies();
+            });
+        });
+        aiButton.addEventListener('click', fetchCategoryDetails);
+        fetchMovies();
+    </script>
+</body>
+</html>

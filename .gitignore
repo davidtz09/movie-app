@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+/actions-runner/
 __pycache__/
 .pytest_cache/
 .coverage

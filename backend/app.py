@@ -70,4 +70,5 @@ def get_category_details():
         return jsonify({"error": "Could not generate category details."}), 500
 
 if __name__ == "__main__":
+    
     app.run(host="0.0.0.0", port=5000)
